@@ -1,15 +1,19 @@
-
 import os
 import sys
 import streamlit as st
 
-sys.path.append(os.path.dirname(__file__))
+# Proje dizinini tanımla (Cloud ortamı için)
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+sys.path.append(BASE_DIR)
+
+# ba_rag.py fonksiyonlarını içe aktar
 from ba_rag import load_store, retrieve_context, build_prompt, ask_gemini
 
+# Streamlit sayfa yapılandırması
 st.set_page_config(page_title="BA Chatbot", page_icon="💬", layout="centered")
 
-# Arka plan stili (raw string sayesinde 90deg sorunsuz)
-st.markdown(r'''
+# 🎨 Arka plan stili
+st.markdown(r"""
 <style>
 body {
   background: linear-gradient(90deg, #E57373 0%, #E9FAD9 50%, #C6F3FF 100%);
@@ -60,7 +64,39 @@ body {
   font-size: 0.92rem;
 }
 </style>
-''', unsafe_allow_html=True)
+""", unsafe_allow_html=True)
 
-# Basit test
-st.write("✅ Stil başarıyla yüklendi.")
+# 🧠 Vektör veritabanını yükle
+store = load_store()
+
+# Başlık alanı
+st.markdown("""
+<div class="chat-container">
+  <div class="header-bar">
+    <span class="header-title">💬 Bundesagentur für Arbeit Chatbot</span>
+  </div>
+</div>
+""", unsafe_allow_html=True)
+
+# Kullanıcı giriş kutusu
+user_input = st.text_area("Bir soru yaz (örnek: *Bildungsgutschein nedir?*)")
+
+# Sorgu gönder butonu
+if st.button("Gönder"):
+    if user_input.strip():
+        with st.spinner("Gemini düşünüyor..."):
+            docs = retrieve_context(store, user_input)
+            prompt = build_prompt(user_input, docs)
+            answer = ask_gemini(prompt)
+            st.markdown(f"""
+            <div class="msg-bot">
+                <div class="bubble-bot">{answer}</div>
+            </div>
+            """, unsafe_allow_html=True)
+    else:
+        st.warning("Lütfen bir soru yaz 💡")
+
+# Sayfa sonunda küçük not
+st.markdown("<br><center><sub>🚀 Powered by Gemini API & FAISS</sub></center>", unsafe_allow_html=True)
+
+
