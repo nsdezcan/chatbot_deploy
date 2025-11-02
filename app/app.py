@@ -1,110 +1,164 @@
 import os
 import sys
+from pathlib import Path
+
 import streamlit as st
 
-# Proje dizinini tanımla (Cloud ortamı için)
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-sys.path.append(BASE_DIR)
+# -------------------------------------------------
+# Yol ayarları
+# -------------------------------------------------
+BASE_DIR = Path(__file__).resolve().parent
+sys.path.append(str(BASE_DIR))
 
-# ba_rag.py fonksiyonlarını içe aktar
-from ba_rag import load_store, retrieve_context, build_prompt, ask_gemini
+from ba_rag import load_store, retrieve_context, build_prompt, ask_gemini  # noqa: E402
 
-# Streamlit sayfa yapılandırması
-st.set_page_config(page_title="BA Chatbot", page_icon="💬", layout="centered")
+# -------------------------------------------------
+# Sayfa ayarları
+# -------------------------------------------------
+st.set_page_config(
+    page_title="BA Chatbot",
+    page_icon="💬",
+    layout="wide",
+)
 
-# 🎨 Arka plan stili
-st.markdown(r"""
-<style>
-body {
-  background: linear-gradient(90deg, #E57373 0%, #E9FAD9 50%, #C6F3FF 100%);
-}
-.chat-container {
-  max-width: 720px;
-  margin: 1.5rem auto;
-  background: #ffffffdd;
-  border-radius: 20px;
-  box-shadow: 0 12px 35px rgba(0,0,0,0.12);
-  padding: 0;
-}
-.header-bar {
-  background: #fff;
-  border-bottom: 1px solid #eee;
-  padding: 0.7rem 1rem;
-  display: flex;
-  align-items: center;
-  gap: 0.6rem;
-}
-.header-title {
-  font-weight: 600;
-  font-size: 1.0rem;
-}
-.msg-bot {
-  display: flex;
-  gap: 0.6rem;
-  margin-bottom: 0.7rem;
-}
-.msg-user {
-  display: flex;
-  justify-content: flex-end;
-  margin-bottom: 0.7rem;
-}
-.bubble-bot {
-  background: #f4f4ff;
-  border-radius: 14px;
-  padding: 0.4rem 0.7rem;
-  max-width: 85%;
-  border: 1px solid #ececff;
-  font-size: 0.92rem;
-}
-.bubble-user {
-  background: #d6f7df;
-  border-radius: 14px;
-  padding: 0.4rem 0.7rem;
-  max-width: 85%;
-  font-size: 0.92rem;
-}
-</style>
-""", unsafe_allow_html=True)
+# -------------------------------------------------
+# CSS – senin istediğin gradient + kutu tasarımı
+# -------------------------------------------------
+st.markdown(
+    """
+    <style>
+    .stApp {
+        background: linear-gradient(90deg, #E57373 0%, #E9FAD9 50%, #C6F3FF 100%);
+    }
+    .chat-shell {
+        max-width: 850px;
+        margin: 1.5rem auto 3.5rem auto;
+        background: rgba(255, 255, 255, 0.92);
+        border-radius: 20px;
+        box-shadow: 0 12px 35px rgba(0,0,0,0.12);
+        padding: 1.2rem 1.5rem 1.5rem 1.5rem;
+    }
+    .chat-header {
+        display: flex;
+        gap: .7rem;
+        align-items: center;
+        border-bottom: 1px solid #eee;
+        padding-bottom: .5rem;
+        margin-bottom: 1.0rem;
+    }
+    .chat-title {
+        font-size: 1.05rem;
+        font-weight: 600;
+    }
+    .answer-box {
+        background: #f4f4ff;
+        border: 1px solid #ececff;
+        border-radius: 14px;
+        padding: .6rem .8rem;
+        margin-top: 1rem;
+        font-size: 0.92rem;
+    }
+    .source-pill {
+        display: inline-block;
+        background: #ffffff;
+        border: 1px solid #ddd;
+        border-radius: 999px;
+        padding: 3px 11px 4px 11px;
+        font-size: 0.68rem;
+        margin: 3px 5px 0 0;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
 
-# 🧠 Vektör veritabanını yükle (HATA YAKALAMALI)
+# -------------------------------------------------
+# Üst kutu
+# -------------------------------------------------
+st.markdown('<div class="chat-shell">', unsafe_allow_html=True)
+
+logo_path = BASE_DIR.parent / "assets" / "logo_company.png"
+
+col_logo, col_title = st.columns([0.13, 0.87], vertical_alignment="center")
+with col_logo:
+    if logo_path.exists():
+        st.image(str(logo_path), use_column_width=True)
+    else:
+        st.markdown("💬")
+
+with col_title:
+    st.markdown(
+        '<div class="chat-header"><div class="chat-title">Bundesagentur für Arbeit Chatbot</div></div>',
+        unsafe_allow_html=True,
+    )
+
+# -------------------------------------------------
+# Vektör deposunu yükle
+# -------------------------------------------------
 try:
     store = load_store()
-except FileNotFoundError as e:
-    st.error("📦 Vektör deposu bulunamadı.\n\nRepo'da **vectorstore/gemini_store.pkl** dosyası var mı?")
-    st.caption(f"Sistem mesajı: {e}")
-    st.stop()
 except Exception as e:
-    st.error("Vektör deposu yüklenirken beklenmeyen bir hata oluştu.")
-    st.caption(f"Sistem mesajı: {e}")
+    st.error(f"Vektör deposu yüklenemedi: {e}")
     st.stop()
 
-# Başlık alanı
-st.markdown("""
-<div class="chat-container">
-  <div class="header-bar">
-    <span class="header-title">💬 Bundesagentur für Arbeit Chatbot</span>
-  </div>
-</div>
-""", unsafe_allow_html=True)
+# -------------------------------------------------
+# Dil seçimi
+# -------------------------------------------------
+lang = st.selectbox("🗣 Sprache / Language", ["Deutsch", "English"], index=0)
+lang_code = "de" if lang == "Deutsch" else "en"
 
-# Kullanıcı giriş kutusu
-user_input = st.text_area("Bir soru yaz (örnek: *Bildungsgutschein nedir?*)")
+# -------------------------------------------------
+# Soru alanı
+# -------------------------------------------------
+default_q = (
+    "Was ist ein Bildungsgutschein und wie kann ich ihn bekommen?"
+    if lang_code == "de"
+    else "What is a Bildungsgutschein and how can I obtain it?"
+)
 
-# Sorgu gönder butonu
-if st.button("Gönder"):
-    if user_input.strip():
-        with st.spinner("Gemini düşünüyor..."):
-            docs = retrieve_context(store, user_input)
-            prompt = build_prompt(user_input, docs)
-            answer = ask_gemini(prompt)
-            st.markdown(f"""
-            <div class="msg-bot">
-                <div class="bubble-bot">{answer}</div>
-            </div>
-            """, unsafe_allow_html=True)
+question = st.text_area(
+    "Bir soru yaz (örnek: *Bildungsgutschein nedir?*)"
+    if lang_code == "de"
+    else "Type your question (e.g. *What is a Bildungsgutschein?*)",
+    value=default_q,
+    height=110,
+)
+
+# -------------------------------------------------
+# Buton
+# -------------------------------------------------
+if st.button("Gönder" if lang_code == "de" else "Send"):
+    if not question.strip():
+        st.warning("Lütfen bir soru yaz." if lang_code == "de" else "Please type a question.")
     else:
-        st.warning("Lütfen bir soru yaz 💡")
+        with st.spinner("Gemini düşünüyor..." if lang_code == "de" else "Gemini is thinking..."):
+            # 1) en iyi 4 parçayı al
+            docs = retrieve_context(store, question, k=4)
+            # 2) prompt oluştur
+            prompt = build_prompt(question, docs, lang=lang_code)
+            # 3) gemini'ye sor
+            result = ask_gemini(prompt)
 
-# Sayfa sonunda küçük not
-st.markdown("<br><center><sub>🚀 Powered by Gemini API & RAG</sub></center>", unsafe_allow_html=True)
+        short_ans = result.get("short", "")
+        long_ans = result.get("long", "")
 
+        # kısa cevap
+        st.markdown(f'<div class="answer-box">{short_ans}</div>', unsafe_allow_html=True)
+
+        # uzun cevap
+        with st.expander(
+            "📄 Detaylı yanıtı göster" if lang_code == "de" else "📄 Show detailed answer"
+        ):
+            st.write(long_ans)
+
+        # kullanılan parçaları göster
+        if docs:
+            st.caption("📎 Kullanılan belgeler / Sources")
+            for d in docs:
+                st.markdown(
+                    f"<span class='source-pill'>{d.get('source', 'source')} · {d['score']:.2f}</span>",
+                    unsafe_allow_html=True,
+                )
+
+# shell'i kapat
+st.markdown("</div>", unsafe_allow_html=True)
