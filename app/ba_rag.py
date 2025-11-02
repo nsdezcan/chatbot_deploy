@@ -1,97 +1,141 @@
+from pathlib import Path
 import os
 import pickle
-from pathlib import Path
+import json
+import re
+
 import numpy as np
 import google.generativeai as genai
 
+# -------------------------------------------------
+# 1. Yol ayarları
+# -------------------------------------------------
+BASE_DIR = Path(__file__).resolve().parent
+VECTOR_PATH = BASE_DIR.parent / "vectorstore" / "gemini_store.pkl"
 
 # -------------------------------------------------
-# 1) Yol ayarı – çok basit
-#    Çalışma dizini = repo kökü
-#    /mount/src/chatbot_deploy/vectorstore/gemini_store.pkl
+# 2. API anahtarı
 # -------------------------------------------------
-REPO_ROOT = Path(".").resolve()
-VECTOR_PATH = REPO_ROOT / "vectorstore" / "gemini_store.pkl"
+API_KEY = os.getenv("GEMINI_API_KEY")
+if not API_KEY:
+    raise RuntimeError(
+        "GEMINI_API_KEY ortam değişkeni bulunamadı. "
+        "Streamlit Cloud → Settings → Secrets içine GEMINI_API_KEY=\"...\" ekle."
+    )
 
+genai.configure(api_key=API_KEY)
 
+EMBED_MODEL = "models/text-embedding-004"
+CHAT_MODEL = "gemini-1.5-flash"   # istersen 1.5-pro yapabilirsin
+
+# -------------------------------------------------
+# 3. Vektör deposunu yükle
+# -------------------------------------------------
 def load_store():
-    """Pickle ile kaydedilmiş vektör deposunu yükler."""
     if not VECTOR_PATH.exists():
         raise FileNotFoundError(f"Vektör deposu bulunamadı: {VECTOR_PATH}")
-    with open(VECTOR_PATH, "rb") as f:
+    with VECTOR_PATH.open("rb") as f:
         store = pickle.load(f)
+    # store -> Colab’da yaptığımız gibi: [{ "embedding": [...], "text": "...", "source": "ba_page_00.txt" }, ...]
     return store
 
-
-def _ensure_api_key():
-    # Streamlit Secrets'te KEY adını şöyle kaydettik:
-    # GOOGLE_API_KEY = "...."
-    api_key = os.getenv("GOOGLE_API_KEY")
-    if not api_key:
-        raise RuntimeError("GOOGLE_API_KEY bulunamadı. Streamlit Secrets'e ekle.")
-    genai.configure(api_key=api_key)
-
-
-def retrieve_context(store, query: str, top_k: int = 4):
-    """Sorgu için en benzer top_k metni döndürür."""
-    _ensure_api_key()
-
-    # Sorguyu embed et
-    emb_model = genai.GenerativeModel("models/text-embedding-004")
-    q_emb = emb_model.embed_content(query)["embedding"]
-    q_emb = np.array(q_emb, dtype="float32")
-
-    # Depo iki farklı formatta olabilir, ikisini de destekle
-    if isinstance(store, dict):
-        texts = (
-            store.get("texts")
-            or store.get("chunks")
-            or store.get("documents")
-        )
-        embeds = store.get("embeddings") or store.get("vectors")
-        embeds = np.array(embeds, dtype="float32")
-    else:
-        # list of {"text": ..., "embedding": ...}
-        texts = [item["text"] for item in store]
-        embeds = np.array([item["embedding"] for item in store], dtype="float32")
-
-    # kosinüs benzerliği
-    sims = embeds @ q_emb / (
-        np.linalg.norm(embeds, axis=1) * np.linalg.norm(q_emb) + 1e-8
+# -------------------------------------------------
+# 4. Embed helpers
+# -------------------------------------------------
+def embed_text(text: str):
+    """Gemini'den 768 boyutlu embedding al."""
+    resp = genai.embed_content(
+        model=EMBED_MODEL,
+        content=text,
     )
-    idxs = sims.argsort()[::-1][:top_k]
-    return [texts[i] for i in idxs]
+    return resp["embedding"]
 
+def cosine(a, b):
+    a = np.array(a, dtype=float)
+    b = np.array(b, dtype=float)
+    return float(np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b) + 1e-10))
 
-def build_prompt(user_query: str, ctx_list, lang: str = "de") -> str:
-    ctx = "\n\n".join(ctx_list)
+# -------------------------------------------------
+# 5. En iyi k dokümanı getir
+# -------------------------------------------------
+def retrieve_context(store, query: str, k: int = 4):
+    q_emb = embed_text(query)
+    scored = []
+    for i, item in enumerate(store):
+        d_emb = item["embedding"]
+        score = cosine(q_emb, d_emb)
+        scored.append((score, i))
+
+    scored.sort(reverse=True, key=lambda x: x[0])
+    top = []
+    for score, idx in scored[:k]:
+        doc = store[idx]
+        top.append(
+            {
+                "text": doc["text"],
+                "source": doc.get("source", f"chunk_{idx}"),
+                "score": score,
+            }
+        )
+    return top
+
+# -------------------------------------------------
+# 6. Prompt oluştur
+# -------------------------------------------------
+def build_prompt(question: str, docs, lang: str = "de") -> str:
+    context_blocks = []
+    for i, d in enumerate(docs, start=1):
+        context_blocks.append(f"[{i}] Quelle: {d['source']}\n{d['text']}")
+    context_text = "\n\n".join(context_blocks)
 
     if lang == "en":
         system = (
-            "You are a helpful assistant for the German Federal Employment Agency (BA). "
-            "First give a short, clear answer, then be ready to give details."
+            "You are a helpful assistant of the German Federal Employment Agency (Bundesagentur für Arbeit).\n"
+            "Answer ONLY from the given context. If the answer is not there, say so.\n"
+            "Return the answer in JSON with two fields:\n"
+            "{\n"
+            '  "short": "2-3 sentence quick answer",\n'
+            '  "long": "well-structured, detailed answer with bullet points and, if possible, references to the context blocks"\n'
+            "}\n"
         )
-    else:
+    else:  # default: German
         system = (
-            "Du bist ein hilfreicher Assistent der Bundesagentur für Arbeit. "
-            "Antworte zuerst kurz und klar auf Deutsch. Danach kannst du Details geben."
+            "Du bist ein Assistent der Bundesagentur für Arbeit.\n"
+            "Antworte NUR auf Basis des gegebenen Kontextes. Wenn etwas im Kontext nicht steht, schreibe das ehrlich.\n"
+            "Gib die Antwort im JSON-Format zurück:\n"
+            "{\n"
+            '  "short": "2-3 Sätze, sehr kurz",\n'
+            '  "long": "ausführliche, gut gegliederte Antwort mit evtl. Aufzählungen und Verweisen auf die Quellen"\n'
+            "}\n"
         )
 
-    prompt = f"""{system}
-
-Nutzerfrage / User question:
-{user_query}
-
-Relevante Informationen aus den Dokumenten:
-{ctx}
-
-Kurze Antwort (2–4 Sätze). Danach, falls Nutzer 'Details' isterse, ayrıntılı anlat:
-"""
+    prompt = (
+        f"{system}\n\n"
+        f"Kontext-Dokumente:\n{context_text}\n\n"
+        f"Frage / Question: {question}\n"
+        "WICHTIG: Antworte wirklich im JSON-Format, ohne zusätzlichen Text."
+    )
     return prompt
 
-
-def ask_gemini(prompt: str, model_name: str = "gemini-1.5-flash") -> str:
-    _ensure_api_key()
-    model = genai.GenerativeModel(model_name)
+# -------------------------------------------------
+# 7. Gemini'den yanıt al
+# -------------------------------------------------
+def ask_gemini(prompt: str):
+    model = genai.GenerativeModel(CHAT_MODEL)
     resp = model.generate_content(prompt)
-    return resp.text
+    txt = resp.text.strip()
+
+    # Gemini bazen başına/sonuna cümle ekliyor, bunu yakalayıp JSON'u çıkarmaya çalışalım
+    try:
+        start = txt.index("{")
+        end = txt.rindex("}") + 1
+        json_part = txt[start:end]
+        data = json.loads(json_part)
+    except Exception:
+        # JSON değilse kısa/uzun aynı olsun
+        data = {
+            "short": txt,
+            "long": txt,
+        }
+    return data
+
