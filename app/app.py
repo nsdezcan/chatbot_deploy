@@ -66,8 +66,17 @@ body {
 </style>
 """, unsafe_allow_html=True)
 
-# 🧠 Vektör veritabanını yükle
-store = load_store()
+# 🧠 Vektör veritabanını yükle (HATA YAKALAMALI)
+try:
+    store = load_store()
+except FileNotFoundError as e:
+    st.error("📦 Vektör deposu bulunamadı.\n\nRepo'da **vectorstore/gemini_store.pkl** dosyası var mı?")
+    st.caption(f"Sistem mesajı: {e}")
+    st.stop()
+except Exception as e:
+    st.error("Vektör deposu yüklenirken beklenmeyen bir hata oluştu.")
+    st.caption(f"Sistem mesajı: {e}")
+    st.stop()
 
 # Başlık alanı
 st.markdown("""
@@ -97,6 +106,5 @@ if st.button("Gönder"):
         st.warning("Lütfen bir soru yaz 💡")
 
 # Sayfa sonunda küçük not
-st.markdown("<br><center><sub>🚀 Powered by Gemini API & FAISS</sub></center>", unsafe_allow_html=True)
-
+st.markdown("<br><center><sub>🚀 Powered by Gemini API & RAG</sub></center>", unsafe_allow_html=True)
 
