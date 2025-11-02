@@ -4,97 +4,94 @@ from pathlib import Path
 import numpy as np
 import google.generativeai as genai
 
-# -------------------------------------------------
-# 1) Yol ayarları (Cloud / GitHub için GÖRECELİ yol)
-# -------------------------------------------------
-# bu dosyanın bulunduğu klasör: /mount/src/chatbot_deploy/app
-BASE_DIR = Path(__file__).resolve().parent
-# .. = projenin kökü → /mount/src/chatbot_deploy
-VECTOR_PATH = (BASE_DIR / ".." / "vectorstore" / "gemini_store.pkl").resolve()
 
 # -------------------------------------------------
-# 2) Vektör deposunu yükle
+# 1) Yol ayarı – çok basit
+#    Çalışma dizini = repo kökü
+#    /mount/src/chatbot_deploy/vectorstore/gemini_store.pkl
 # -------------------------------------------------
+REPO_ROOT = Path(".").resolve()
+VECTOR_PATH = REPO_ROOT / "vectorstore" / "gemini_store.pkl"
+
+
 def load_store():
+    """Pickle ile kaydedilmiş vektör deposunu yükler."""
     if not VECTOR_PATH.exists():
         raise FileNotFoundError(f"Vektör deposu bulunamadı: {VECTOR_PATH}")
     with open(VECTOR_PATH, "rb") as f:
         store = pickle.load(f)
     return store
 
-# -------------------------------------------------
-# 3) En benzer parçaları getir
-#    (pkl içindeki key'ler biz Colab’de nasıl kaydettiysek ona uyacak)
-# -------------------------------------------------
-def retrieve_context(store, query, top_k=4):
-    # pkl bazen {"texts": [...], "embeddings": [...]} şeklinde
-    # bazen de [{"text": ..., "embedding": ...}, ...] şeklinde olabilir.
-    # İkisini de destekleyelim.
-    genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
+
+def _ensure_api_key():
+    # Streamlit Secrets'te KEY adını şöyle kaydettik:
+    # GOOGLE_API_KEY = "...."
+    api_key = os.getenv("GOOGLE_API_KEY")
+    if not api_key:
+        raise RuntimeError("GOOGLE_API_KEY bulunamadı. Streamlit Secrets'e ekle.")
+    genai.configure(api_key=api_key)
+
+
+def retrieve_context(store, query: str, top_k: int = 4):
+    """Sorgu için en benzer top_k metni döndürür."""
+    _ensure_api_key()
 
     # Sorguyu embed et
     emb_model = genai.GenerativeModel("models/text-embedding-004")
     q_emb = emb_model.embed_content(query)["embedding"]
-    q_emb = np.array(q_emb)
+    q_emb = np.array(q_emb, dtype="float32")
 
-    # 1. format: dict
+    # Depo iki farklı formatta olabilir, ikisini de destekle
     if isinstance(store, dict):
         texts = (
             store.get("texts")
             or store.get("chunks")
             or store.get("documents")
         )
-        embeds = (
-            store.get("embeddings")
-            or store.get("vectors")
-        )
-        embeds = np.array(embeds)
+        embeds = store.get("embeddings") or store.get("vectors")
+        embeds = np.array(embeds, dtype="float32")
     else:
-        # 2. format: list of dicts
+        # list of {"text": ..., "embedding": ...}
         texts = [item["text"] for item in store]
-        embeds = np.array([item["embedding"] for item in store])
+        embeds = np.array([item["embedding"] for item in store], dtype="float32")
 
     # kosinüs benzerliği
-    sims = embeds @ q_emb / (np.linalg.norm(embeds, axis=1) * np.linalg.norm(q_emb) + 1e-8)
+    sims = embeds @ q_emb / (
+        np.linalg.norm(embeds, axis=1) * np.linalg.norm(q_emb) + 1e-8
+    )
     idxs = sims.argsort()[::-1][:top_k]
-
     return [texts[i] for i in idxs]
 
-# -------------------------------------------------
-# 4) Prompt oluşturma
-# -------------------------------------------------
-def build_prompt(user_query, ctx_list, lang="de"):
-    joined_ctx = "\n\n".join(ctx_list)
+
+def build_prompt(user_query: str, ctx_list, lang: str = "de") -> str:
+    ctx = "\n\n".join(ctx_list)
+
     if lang == "en":
         system = (
             "You are a helpful assistant for the German Federal Employment Agency (BA). "
-            "Answer shortly first, then be ready to explain in detail."
+            "First give a short, clear answer, then be ready to give details."
         )
     else:
         system = (
             "Du bist ein hilfreicher Assistent der Bundesagentur für Arbeit. "
-            "Antworte zuerst kurz und klar auf Deutsch. Danach kannst du Details nennen."
+            "Antworte zuerst kurz und klar auf Deutsch. Danach kannst du Details geben."
         )
+
     prompt = f"""{system}
 
-Nutzerfrage:
+Nutzerfrage / User question:
 {user_query}
 
-Relevante Informationen:
-{joined_ctx}
+Relevante Informationen aus den Dokumenten:
+{ctx}
 
-Kurze Antwort (2-4 Sätze), dann bei Bedarf Details:
+Kurze Antwort (2–4 Sätze). Danach, falls Nutzer 'Details' isterse, ayrıntılı anlat:
 """
     return prompt
 
-# -------------------------------------------------
-# 5) Gemini'den cevap alma
-# -------------------------------------------------
-def ask_gemini(prompt, model_name="gemini-1.5-flash"):
-    genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
+
+def ask_gemini(prompt: str, model_name: str = "gemini-1.5-flash") -> str:
+    _ensure_api_key()
     model = genai.GenerativeModel(model_name)
     resp = model.generate_content(prompt)
     return resp.text
-
-
-      
