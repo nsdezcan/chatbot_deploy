@@ -48,13 +48,12 @@ def _read_txt_files() -> Tuple[List[str], List[str]]:
 
 
 # -------------------------------------------------
-# PUBLIC: load_store / retrieve_context / answer_pair
+# PUBLIC: load_store / retrieve_context
 # -------------------------------------------------
 def load_store() -> Store:
     """TXT’leri okuyup TF-IDF matrisi hazırla."""
     file_names, texts = _read_txt_files()
 
-    # Basit cümle kırpma yerine tam dokümana TF-IDF uygulayıp ilk sürümü çıkarıyoruz
     vectorizer = TfidfVectorizer(
         strip_accents="unicode",
         lowercase=True,
@@ -81,13 +80,27 @@ def retrieve_context(store: Store, query: str, k: int = 4) -> List[str]:
 
 
 # -------------------------------------------------
-# Groq istemcisi ve yanıt üretimi
+# Groq istemcisi ve yanıt üretimi (MODEL FALLBACK'lı)
 # -------------------------------------------------
 def _groq_client() -> Groq:
-    key = os.getenv("GROQ_API_KEY")
+    key = os.getenv("GROQ_API_KEY") or os.getenv("groq_api_key") or os.getenv("GROQ")
     if not key:
-        raise RuntimeError("GROQ_API_KEY boş. Streamlit Cloud → App → Settings → Secrets içine ekleyin.")
+        raise RuntimeError(
+            "GROQ_API_KEY boş. Streamlit Cloud → App → Settings → Secrets içine ekleyin."
+        )
     return Groq(api_key=key)
+
+
+# Kullanılabilir modeller (ilk çalışanı kullanırız, hata olursa sıradakine düşer)
+MODEL_PREFERENCE = [
+    "llama-3.1-8b-instant",      # hızlı/ucuz ve aktif
+    "llama-3.1-70b-instant",     # daha güçlü (hesapta açıksa)
+    "mixtral-8x7b-32768",        # yedek
+]
+
+
+def _pick_model() -> str:
+    return MODEL_PREFERENCE[0]
 
 
 def _lang_system_msg(lang: str) -> str:
@@ -115,19 +128,35 @@ def _build_context_block(docs: List[str], max_chars: int = 3000) -> str:
     return joined[:max_chars]
 
 
-def _chat_complete(client: Groq, model: str, system: str, user: str) -> str:
-    resp = client.chat.completions.create(
-        model=model,                     # "llama-3.1-70b-versatile" genelde çok başarılı
-        temperature=0.2,
-        max_tokens=800,
-        messages=[
-            {"role": "system", "content": system},
-            {"role": "user", "content": user},
-        ],
-    )
-    return resp.choices[0].message.content.strip()
+def _chat_complete(system: str, user: str, max_tokens: int = 800, temperature: float = 0.2) -> str:
+    """Modeli seçip çağırır; hata olursa listedeki bir sonraki modele düşer."""
+    client = _groq_client()
+    tried = []
+
+    for model in MODEL_PREFERENCE:
+        try:
+            resp = client.chat.completions.create(
+                model=model,
+                messages=[
+                    {"role": "system", "content": system},
+                    {"role": "user", "content": user},
+                ],
+                max_tokens=max_tokens,
+                temperature=temperature,
+            )
+            return resp.choices[0].message.content.strip()
+        except Exception as e:
+            tried.append((model, str(e)))
+            continue
+
+    # Hepsi hata verirse özet bilgi dökelim:
+    msgs = "\n".join([f"- {m}: {err}" for m, err in tried])
+    raise RuntimeError(f"Tüm Groq model çağrıları başarısız oldu:\n{msgs}")
 
 
+# -------------------------------------------------
+# PUBLIC: answer_pair
+# -------------------------------------------------
 def answer_pair(question: str, language: str = "de") -> Tuple[str, str]:
     """
     Kısa + detaylı iki yanıt döndür.
@@ -139,7 +168,6 @@ def answer_pair(question: str, language: str = "de") -> Tuple[str, str]:
 
     sys_prompt = _lang_system_msg(language)
 
-    # Kullanıcıya verilecek iki farklı görev:
     user_short = (
         "KISA cevap ver (1-3 cümle). Eğer bağlam yeterli değilse 'Emin değilim' de.\n\n"
         f"Frage/Question/Soru: {question}\n\n"
@@ -154,10 +182,7 @@ def answer_pair(question: str, language: str = "de") -> Tuple[str, str]:
         f"Kontext/Context/Bağlam:\n{context}"
     )
 
-    client = _groq_client()
-    model = "llama-3.1-70b-versatile"
-
-    short_ans = _chat_complete(client, model, sys_prompt, user_short)
-    detailed_ans = _chat_complete(client, model, sys_prompt, user_detail)
+    short_ans = _chat_complete(system=sys_prompt, user=user_short)
+    detailed_ans = _chat_complete(system=sys_prompt, user=user_detail)
 
     return short_ans, detailed_ans
