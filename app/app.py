@@ -12,14 +12,16 @@ sys.path.append(str(BASE_DIR))
 from ba_rag import answer_pair  # <-- BA_RAG.PY aynen kalsın
 
 ASSETS = BASE_DIR.parent / "assets"
-BOT_AVATAR_PATH = ASSETS / "logo_company.png"     # kurum logosu (bot)
-USER_AVATAR_PATH = ASSETS / "user_avatar.png"     # kullanıcı avatarı
+BOT_AVATAR_PATH = ASSETS / "logo_company.png"      # kurum logosu (bot)
+USER_AVATAR_PATH = ASSETS / "user_avatar.png"      # kullanıcı avatarı
 
+# Base64'e çevirme fonksiyonu (Hata kontrolü iyileştirildi)
 def _to_b64(p: Path) -> str:
     try:
         data = p.read_bytes()
         return base64.b64encode(data).decode("utf-8")
-    except Exception:
+    except Exception as e:
+        print(f"Avatar yüklenemedi: {p}. Hata: {e}")
         return ""
 
 BOT_AVATAR_B64 = _to_b64(BOT_AVATAR_PATH)
@@ -35,7 +37,7 @@ st.set_page_config(
 )
 
 # ===========================================
-# 3) STİL
+# 3) STİL (GÜNCELLENDİ)
 # ===========================================
 st.markdown("""
 <style>
@@ -49,55 +51,93 @@ st.markdown("""
   --user-bg:#2A2E35;
 }
 
-html, body, [data-testid="stAppViewContainer"]{ background:var(--bg)!important; color:var(--text); }
+html, body, [data-testid="stAppViewContainer"]{
+    background:var(--bg)!important;
+    color:var(--text);
+}
 [data-testid="stSidebar"] { background:#17191E; }
 [data-testid="stSidebar"] *{ color:#E5E7EB!important; }
-[data-testid="stSidebar"] p.small-note{ color:#CDD3DD!important; font-size:12px; }
-
-/* Başlık bandı */
-.header-band{
-  display:flex; align-items:center; gap:.75rem;
-  background:#fff; border:1px solid #eee;
-  border-radius:14px; padding:.65rem .9rem;
-  box-shadow:0 6px 20px rgba(0,0,0,.06);
-  width:100%; max-width:1000px; margin:0 auto .6rem;
+[data-testid="stSidebar"] p.small-note{
+    color:#CDD3DD!important;
+    font-size:12px;
 }
-.header-title{ color:var(--ba-red); font-weight:800; }
+
+/* DEĞİŞİKLİK 1: Gereksiz başlık bandı (header-band) kaldırıldı. */
 
 /* Mesaj balonları */
 .msg{ display:flex; gap:.6rem; margin:.6rem 0; }
-.msg .avatar{ width:32px; height:32px; border-radius:50%; overflow:hidden; flex:0 0 32px; }
-.msg .avatar img{ width:100%; height:100%; object-fit:cover; display:block; }
-.bubble{
-  max-width:780px; padding:.6rem .8rem; border-radius:12px; border:1px solid #eee;
-  line-height:1.45; font-size:.95rem;
+.msg .avatar{
+    width:32px;
+    height:32px;
+    border-radius:50%;
+    overflow:hidden;
+    flex:0 0 32px;
 }
-.msg.bot .bubble{ background:var(--bot-bg); border-color:var(--bot-border); color:var(--text); }
+.msg .avatar img{
+    width:100%;
+    height:100%;
+    object-fit:cover;
+    display:block;
+}
+.bubble{
+  max-width:780px;
+  padding:.6rem .8rem;
+  border-radius:12px;
+  border:1px solid #eee;
+  line-height:1.45;
+  font-size:.95rem;
+}
+.msg.bot .bubble{
+    background:var(--bot-bg);
+    border-color:var(--bot-border);
+    color:var(--text);
+}
 .msg.user{ justify-content:flex-end; }
-.msg.user .bubble{ background:var(--user-bg); color:#fff; border-color:#282C34; }
+.msg.user .bubble{
+    background:var(--user-bg);
+    color:#fff;
+    border-color:#282C34;
+}
 
 /* Expander */
 .streamlit-expanderHeader{
-  font-weight:700; color:var(--text); background:#F7F7F8; border-radius:10px;
+  font-weight:700;
+  color:var(--text);
+  background:#F7F7F8;
+  border-radius:10px;
   border:1px solid #EEE;
 }
-.streamlit-expanderContent{ background:#FCFCFD; border:1px dashed #E5E7EB; border-radius:10px; }
-
-/* Alt giriş barı */
-.input-dock{ position:sticky; bottom:8px; z-index:5; background:transparent; padding:.2rem 0; }
-.input-row{ display:grid; grid-template-columns: 1fr 56px; gap:.5rem; }
-.input-row .send-btn{
-  height:56px; border-radius:12px; border:1px solid #e5e7eb;
-  background:var(--ba-red); color:#fff; font-weight:700;
+.streamlit-expanderContent{
+    background:#FCFCFD;
+    border:1px dashed #E5E7EB;
+    border-radius:10px;
 }
-.input-row textarea{
-  border-radius:12px; border:1px solid #E5E7EB;
+
+/* DEĞİŞİKLİK 2: Karmaşık .input-dock, .input-row stilleri kaldırıldı. */
+/* st.chat_input'ı ana temaya uydurmak için KÜÇÜK bir ayar */
+[data-testid="stChatInput"] {
+    border-top: 1px solid #EEEEEE;
+    background: var(--bg);
+}
+[data-testid="stChatInput"] textarea{
+    border-radius: 12px;
+    border-color: #E5E7EB;
+}
+[data-testid="stChatInput"] button{
+    border-radius: 12px;
+    background: var(--ba-red);
+    color: #fff;
+}
+[data-testid="stChatInput"] button:hover,
+[data-testid="stChatInput"] button:focus{
+    background: #A90115; /* Kırmızının koyu tonu */
+    color: #fff;
 }
 </style>
 """, unsafe_allow_html=True)
 
 # ===========================================
-# 4) SIDEBAR
+# 4) SIDEBAR (DEĞİŞİKLİK YOK)
 # ===========================================
 with st.sidebar:
     if BOT_AVATAR_B64:
@@ -108,19 +148,14 @@ with st.sidebar:
 lang_code = "de" if lang_label.startswith("Deutsch") else "en"
 
 # ===========================================
-# 5) BAŞLIK
+# 5) BAŞLIK (DEĞİŞİKLİK 3: Bu bölüm kaldırıldı)
 # ===========================================
-st.markdown('<div class="header-band">', unsafe_allow_html=True)
-c1, c2 = st.columns([0.06, 0.94])
-with c1:
-    if BOT_AVATAR_B64:
-        st.image(BOT_AVATAR_PATH.as_posix(), use_container_width=True)
-with c2:
-    st.markdown('<span class="header-title">💬 Bundesagentur für Arbeit Chatbot</span>', unsafe_allow_html=True)
-st.markdown('</div>', unsafe_allow_html=True)
+# st.markdown('<div class="header-band">', ...) # <-- KALDIRILDI
+# c1, c2 = st.columns([0.06, 0.94])             # <-- KALDIRILDI
+# ... (içeriği de kaldırıldı)
 
 # ===========================================
-# 6) MESAJ RENDER
+# 6) MESAJ RENDER (DEĞİŞİKLİK YOK)
 # ===========================================
 def render_bot(html_text: str):
     img_tag = f'<img src="data:image/png;base64,{BOT_AVATAR_B64}"/>' if BOT_AVATAR_B64 else ""
@@ -139,62 +174,71 @@ def render_user(text: str):
     </div>""", unsafe_allow_html=True)
 
 # ===========================================
-# 7) DURUM / GEÇMİŞ
+# 7) DURUM / GEÇMİŞ (DEĞİŞİKLİK YOK)
 # ===========================================
 if "history" not in st.session_state:
     st.session_state.history = []  # list[tuple(role, html)]
 
+# Geçmişi render et
 for role, html in st.session_state.history:
     if role == "user":
         render_user(html)
     else:
-        render_bot(html)
+        # Bot'un cevabı expander içerebilir, bu yüzden
+        # html'i bir liste olarak kontrol edelim (güvenli yöntem)
+        if isinstance(html, list):
+            render_bot(html[0])
+            with st.expander(html[1], expanded=False):
+                st.markdown(html[2], unsafe_allow_html=True)
+        else:
+            render_bot(html)
 
 # ===========================================
-# 8) GİRİŞ
+# 8) GİRİŞ (DEĞİŞİKLİK 4: Tamamen st.chat_input ile değiştirildi)
 # ===========================================
 placeholder_text = {
     "de": "Frage eingeben (z. B. Was ist ein Bildungsgutschein?)",
     "en": "Ask a question (e.g., What is a Bildungsgutschein?)"
 }[lang_code]
-q_key = f"q_{lang_code}"
-if q_key not in st.session_state:
-    st.session_state[q_key] = ""
 
-st.markdown('<div class="input-dock">', unsafe_allow_html=True)
-with st.container():
-    st.markdown('<div class="input-row">', unsafe_allow_html=True)
-    c1, c2 = st.columns([1, 0.12])
-    with c1:
-        st.session_state[q_key] = st.text_area(
-            placeholder_text,
-            height=90,
-            label_visibility="collapsed",
-            value=st.session_state[q_key],
-            key=f"txt_{q_key}"
-        )
-    with c2:
-        send = st.button("➤", use_container_width=True, key="send_btn", type="primary")
-    st.markdown('</div>', unsafe_allow_html=True)
-st.markdown('</div>', unsafe_allow_html=True)
+# st.markdown('<div class="input-dock">', ...) # <-- KALDIRILDI
+# ... (tüm st.columns, st.text_area, st.button kodları kaldırıldı)
 
-# ===========================================
-# 9) CEVAP
-# ===========================================
-if send and st.session_state[q_key].strip():
-    question = st.session_state[q_key].strip()
-    st.session_state.history.append(("user", question))
-    # giriş kutusunu hemen temizle
-    st.session_state[q_key] = ""
+# YENİ VE BASİT GİRİŞ YÖNTEMİ
+if prompt := st.chat_input(placeholder_text):
+    
+    # 1. Kullanıcının sorusunu kaydet ve ekrana bas
+    st.session_state.history.append(("user", prompt))
+    render_user(prompt) # Ekranda hemen göster
+
+    # 2. Bot cevabını oluştur
     with st.spinner("Denke nach..." if lang_code == "de" else "Thinking..."):
         try:
-            short_ans, detailed = answer_pair(question, language=lang_code)
+            short_ans, detailed = answer_pair(prompt, language=lang_code)
+            
+            # Kısa cevabı hazırla
             short_html = f"<b>{'Kurzfassung' if lang_code=='de' else 'Short Answer'}:</b> {short_ans}"
-            st.session_state.history.append(("bot", short_html))
-            # Detay expander'ını da hemen göster
-            with st.expander("Mehr Details anzeigen" if lang_code=="de" else "Show more details", expanded=False):
+            
+            # Detaylar için expander başlığı
+            expander_label = "Mehr Details anzeigen" if lang_code=="de" else "Show more details"
+            
+            # Cevabı ve expander'ı BİRLİKTE kaydet
+            # Bu, st.rerun() sonrası expander'ın kaybolmamasını sağlar
+            st.session_state.history.append(
+                ("bot", [short_html, expander_label, detailed])
+            )
+            
+            # Yeni cevabı hemen ekrana bas
+            render_bot(short_html)
+            with st.expander(expander_label, expanded=False):
                 st.markdown(detailed, unsafe_allow_html=True)
+
         except Exception as e:
-            st.session_state.history.append(("bot", f"<b>Fehler:</b> {e}"))
-    # 🔁 modern API — experimental değil
-    st.rerun()
+            error_html = f"<b>Fehler:</b> {e}"
+            st.session_state.history.append(("bot", error_html))
+            render_bot(error_html)
+
+    # DEĞİŞİKLİK 5: st.rerun() kaldırıldı.
+    # st.chat_input() ve st.session_state kullanımı
+    # rerun'a olan ihtiyacı ortadan kaldırır.
+
