@@ -1,159 +1,238 @@
 # app/app.py
-from __future__ import annotations
-import sys
+import os, sys
 from pathlib import Path
 import streamlit as st
 
 BASE_DIR = Path(__file__).resolve().parent
 sys.path.append(str(BASE_DIR))
 
-from ba_rag import answer_pair  # load_store / retrieve_context içeride çağrılıyor
+from ba_rag import load_store, retrieve_context, answer_pair
 
-st.set_page_config(page_title="BA Chatbot", page_icon="💬", layout="centered")
+st.set_page_config(page_title="BA Chatbot", page_icon="💬", layout="wide")
 
-# =========================
-# 🎨 Global Stil
-# =========================
+# ---------- PATHS ----------
+ASSETS = BASE_DIR.parent / "assets"
+BOT_AVATAR = ASSETS / "logo_company.png"   # BA logosu
+USER_AVATAR = ASSETS / "user_avatar.png"   # kullanıcı ikonu
+
+# ---------- STYLES ----------
 st.markdown("""
 <style>
-/* Arka planı beyaza çek, genel tipografi */
-html, body, [data-testid="stAppViewContainer"]{
-  background:#ffffff !important;
-  color:#111 !important;
-  font-size:16px;
+:root {
+  --ba-red: #C61F1F;
+  --ink: #222;               /* ana metin */
+  --muted: #5b5b5b;          /* ikincil metin */
+  --bubble-user: #2f2f2f;    /* kullanıcı balon koyu gri */
+  --bubble-bot: #ffefef;     /* bot balon açık kırmızı */
+  --card: #ffffff;           /* kart/beyaz */
+  --border: #eaeaea;
 }
 
-/* Streamlit birincil kırmızı (BA kırmızısı) */
-:root{
-  --ba-red:#C62828; /* Agenturrot'a yakın */
-}
-button[kind="primary"], [data-testid="baseButton-primary"]{
-  background:var(--ba-red) !important;
-  border-color:var(--ba-red) !important;
-}
-button[kind="primary"]:hover, [data-testid="baseButton-primary"]:hover{
-  opacity:.92;
+/* Tüm uygulama arka planı beyaz ve sade */
+html, body, [data-testid="stAppViewContainer"] {
+  background: #ffffff !important;
+  color: var(--ink);
 }
 
-/* Ana kapsayıcı ve üst başlık bandı */
-.ba-container{
-  max-width: 900px;
-  margin: 1rem auto 0 auto;
+/* Sidebar */
+[data-testid="stSidebar"] {
+  background: #1f1f24 !important;
 }
-.ba-header{
-  display:flex; align-items:center; gap:.75rem;
-  padding:.65rem .9rem; background:#fff; border:1px solid #eee;
-  border-radius:14px;
-  box-shadow:0 8px 24px rgba(0,0,0,.06);
-}
-.ba-header h3{
-  margin:0; font-weight:800; color:var(--ba-red);
-  font-size:1.05rem;
+[data-testid="stSidebar"] * { color: #e9e9ea !important; }
+[data-testid="stSidebar"] .sidebar-note {
+  color: #cfcfd6 !important;  /* okunurluk için daha açık */
+  font-size: 0.9rem;
 }
 
-/* Logo hizası */
-.ba-logo img{ max-height:56px; width:auto; border-radius:12px;}
-
-/* Etiketleri koyu yap (erişilebilirlik) */
-label, [data-testid="stWidgetLabel"] > label{ color:#222 !important; font-weight:600; }
-
-/* ChatMessage iç metinleri daha okunur yap */
-[data-testid="stChatMessageContent"]{ color:#111 !important; }
-
-/* Expander başlığı/ içi koyu renk */
-[data-testid="stExpander"] details summary{
-  color:#111 !important; font-weight:600;
+/* Üst Başlık */
+.header-wrap {
+  max-width: 980px;
+  margin: 12px auto 6px auto;
 }
-.exp-body{ background:#fafafa; border:1px dashed #ddd; border-radius:12px; padding:.8rem; }
+.header-card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 16px;        /* tüm köşeler yuvarlak */
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 16px;         /* yükseklik azalttık */
+  box-shadow: 0 4px 18px rgba(0,0,0,.05);
+}
+.header-title {
+  font-weight: 800;
+  color: var(--ba-red);       /* logo kırmızısı */
+  font-size: 1.05rem;
+}
 
-/* Chat input alt sabit; Streamlit bunu zaten sabitliyor, sadece genişlik ayarı */
-.block-container{ padding-top: 0 !important; }
+/* Chat alan kartı */
+.chat-wrap {
+  max-width: 980px;
+  margin: 4px auto 96px auto;
+}
 
-/* Yardımcı küçük metin */
-.subtle{
-  color:#555; font-size:.9rem;
+/* Mesaj satırı */
+.msg {
+  display: grid;
+  grid-template-columns: 36px 1fr;
+  align-items: start;
+  gap: 10px;
+  margin: 10px 0 14px 0;
+}
+.msg .avatar {
+  width: 36px; height: 36px; border-radius: 50%;
+  overflow: hidden; border: 1px solid var(--border);
+  background: #fff;
+}
+.msg .avatar img { width: 100%; height: 100%; object-fit: cover; }
+
+/* Baloncuklar */
+.bubble {
+  padding: 10px 12px;
+  border-radius: 14px;
+  border: 1px solid var(--border);
+  line-height: 1.55;
+  color: var(--ink);
+}
+.bubble.user {
+  background: var(--bubble-user);
+  color: #fff;                         /* koyu zemin üzerinde beyaz metin */
+}
+.bubble.bot {
+  background: var(--bubble-bot);
+}
+
+/* Kısa cevap etiketi */
+.short-tag {
+  display: inline-block;
+  font-weight: 700;
+  margin-right: 6px;
+}
+
+/* Expander (detay) – siyah metin, okunur */
+.streamlit-expanderHeader { color: var(--ink) !important; font-weight: 700; }
+div[data-testid="stExpander"] {
+  border: 1px dashed var(--border); border-radius: 12px; background: #fafafa;
+}
+
+/* Giriş çubuğu alta sabit */
+.input-bar {
+  position: fixed;
+  left: 260px;                 /* sidebar genişliği ~ */
+  right: 24px;
+  bottom: 18px;
+  z-index: 999;
+}
+@media (max-width: 1000px) {
+  .input-bar { left: 12px; right: 12px; }
+}
+.input-row {
+  display: grid;
+  grid-template-columns: 1fr 48px;
+  gap: 8px;
+}
+.input-field textarea {
+  border-radius: 999px !important;
+  border: 1px solid var(--border) !important;
+  background: #222831 !important;
+  color: #eaeef2 !important;
+}
+.send-btn button {
+  height: 48px; border-radius: 999px !important;
+  background: var(--ba-red) !important;
+  color: #fff !important; font-weight: 700;
+  border: 1px solid #b71a1a !important;
 }
 </style>
 """, unsafe_allow_html=True)
 
-# =========================
-# 🧭 Sidebar: Dil seçimi (sade)
-# =========================
+# ---------- SIDEBAR ----------
 with st.sidebar:
-    st.image(str((BASE_DIR.parent/"assets"/"logo_company.png")), width=96)
-    st.markdown("### Sprache / Language")
-    lang_name = st.selectbox(
-        " ",
-        ["Deutsch (de)", "English (en)"],
-        index=0,
-        label_visibility="collapsed"
-    )
-    lang_code = {"Deutsch (de)":"de", "English (en)":"en"}[lang_name]
+    if BOT_AVATAR.exists():
+        st.image(str(BOT_AVATAR), width=56)
+    st.selectbox("Sprache / Language", ["Deutsch (de)", "English (en)"], key="lang",
+                 help=None, index=0)
     st.markdown(
-        "<div class='subtle'>Hinweis: Antworten werden auf der gewählten Sprache verfasst.</div>",
+        "<div class='sidebar-note'>Hinweis: Antworten werden auf der gewählten Sprache verfasst.</div>",
         unsafe_allow_html=True
     )
 
-# =========================
-# 🧱 Üst başlık
-# =========================
-st.markdown("<div class='ba-container'>", unsafe_allow_html=True)
-cols = st.columns([0.12, 0.88])
-with cols[0]:
-    st.markdown("<div class='ba-logo'>", unsafe_allow_html=True)
-    st.image(str((BASE_DIR.parent/"assets"/"logo_company.png")), use_container_width=True)
-    st.markdown("</div>", unsafe_allow_html=True)
-with cols[1]:
-    st.markdown("<div class='ba-header'><h3>💬 Bundesagentur für Arbeit Chatbot</h3></div>", unsafe_allow_html=True)
-st.write("")  # küçük boşluk
+lang_code = "de" if st.session_state.get("lang","Deutsch (de)").startswith("Deutsch") else "en"
 
-# =========================
-# 💬 Sohbet Geçmişi
-# =========================
-if "messages" not in st.session_state:
-    st.session_state.messages = []  # each item: {"role": "user"/"assistant", "content": "...", "detail": optional}
+# ---------- HEADER ----------
+st.markdown(
+    f"""
+    <div class="header-wrap">
+      <div class="header-card">
+        <img src="app:///{BOT_AVATAR.as_posix()}" width="28" height="28" />
+        <div class="header-title">💬 Bundesagentur für Arbeit Chatbot</div>
+      </div>
+    </div>
+    """,
+    unsafe_allow_html=True
+)
 
-# Daha önceki mesajları çiz
-for msg in st.session_state.messages:
-    with st.chat_message(msg["role"]):
-        st.markdown(msg["content"])
-        if msg.get("detail"):
-            with st.expander("Mehr Details anzeigen" if lang_code=="de" else "Show more details"):
-                st.markdown(f"<div class='exp-body'>{msg['detail']}</div>", unsafe_allow_html=True)
+# ---------- HELPERS ----------
+def render_msg(role: str, html: str):
+    """role: 'user' | 'bot'"""
+    avatar = USER_AVATAR if role == "user" else BOT_AVATAR
+    bubble_cls = "bubble user" if role == "user" else "bubble bot"
+    st.markdown(
+        f"""
+        <div class="msg">
+          <div class="avatar"><img src="app:///{avatar.as_posix()}" /></div>
+          <div class="{bubble_cls}">{html}</div>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
 
-# =========================
-# ⌨️ Altta sabit giriş alanı
-# =========================
-prompt_placeholder = {
+# ---------- CHAT (tek-shot) ----------
+# chat geçmişini görmek için küçük bir oturum listesi tutalım
+if "history" not in st.session_state:
+    st.session_state["history"] = []   # list[("user"|"bot", html)]
+
+# mesaj geçmişini çiz
+st.markdown('<div class="chat-wrap">', unsafe_allow_html=True)
+for role, html in st.session_state["history"]:
+    render_msg(role, html)
+st.markdown('</div>', unsafe_allow_html=True)
+
+# ---------- INPUT BAR (alta sabit) ----------
+ph = {
     "de": "Frage eingeben (z. B. Was ist ein Bildungsgutschein?)",
     "en": "Ask a question (e.g., What is a Bildungsgutschein?)",
 }[lang_code]
 
-user_input = st.chat_input(prompt_placeholder)
+with st.container():
+    st.markdown('<div class="input-bar">', unsafe_allow_html=True)
+    c1, c2 = st.columns([1, 0.12], gap="small")
+    with c1:
+        user_q = st.text_area(ph, height=48, label_visibility="collapsed", key="q",
+                              placeholder=ph)
+    with c2:
+        send = st.button("➤", use_container_width=True, key="send")
+    st.markdown('</div>', unsafe_allow_html=True)
 
-if user_input:
-    # 1) Kullanıcı mesajını göster & kaydet
-    st.session_state.messages.append({"role":"user", "content":user_input})
-    with st.chat_message("user"):
-        st.markdown(user_input)
+if send and user_q.strip():
+    # hemen kullanıcı mesajını ekranda göster
+    st.session_state["history"].append(("user", user_q.strip()))
+    with st.spinner("Denke nach..." if lang_code == "de" else "Thinking..."):
+        try:
+            short_ans, detailed_ans = answer_pair(user_q.strip(), language=lang_code)
+            # kısa yanıt balon içinde
+            short_html = f"<span class='short-tag'>{'Kurzfassung' if lang_code=='de' else 'Short Answer'}:</span> {short_ans}"
+            st.session_state["history"].append(("bot", short_html))
 
-    # 2) Bot düşünürken spinner
-    with st.chat_message("assistant"):
-        with st.spinner("Denke nach..." if lang_code=="de" else "Thinking..."):
-            short_ans, detailed_ans = answer_pair(user_input, language=lang_code)
+            # detay expander (altına koyacağız)
+            with st.expander("Mehr Details anzeigen" if lang_code=="de" else "Show more details", expanded=False):
+                st.markdown(detailed_ans, unsafe_allow_html=True)
 
-        # Kısa yanıt (yüksek kontrast)
-        st.markdown(f"**{'Kurzfassung' if lang_code=='de' else 'Short Answer'}:** {short_ans}")
+        except Exception as e:
+            st.session_state["history"].append(("bot", f"<strong>Fehler:</strong> {e}"))
 
-        # Detay expander
-        with st.expander("Mehr Details anzeigen" if lang_code=="de" else "Show more details"):
-            st.markdown(f"<div class='exp-body'>{detailed_ans}</div>", unsafe_allow_html=True)
+    st.experimental_rerun()
 
-    # 3) Bot mesajını geçmişe ekle
-    st.session_state.messages.append({
-        "role":"assistant",
-        "content": f"**{'Kurzfassung' if lang_code=='de' else 'Short Answer'}:** {short_ans}",
-        "detail": detailed_ans
-    })
 
-st.markdown("</div>", unsafe_allow_html=True)  # .ba-container kapanış
+
+
