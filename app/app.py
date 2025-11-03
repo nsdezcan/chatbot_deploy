@@ -35,7 +35,7 @@ st.set_page_config(
 )
 
 # ===========================================
-# 3) STİL (YENİLENMİŞ)
+# 3) STİL (GÜNCEL)
 # ===========================================
 st.markdown("""
 <style>
@@ -52,101 +52,94 @@ st.markdown("""
   --user-text:#111827;
 }
 
-/* === Genel Arka Planlar === */
+/* === Genel arka plan === */
 html, body, [data-testid="stAppViewContainer"]{
   background:var(--bg)!important;
   color:var(--text)!important;
 }
 
-/* === Üst Bant Kaldırma === */
+/* === Üst header bar: siyah yerine açık gri === */
+header[data-testid="stHeader"]{
+  background-color:#F5F6F7 !important;
+  color:#1F2937 !important;
+  border-bottom:1px solid #E3E4E6 !important;
+}
+header[data-testid="stHeader"] *{
+  color:#1F2937 !important;
+}
+header[data-testid="stHeader"]::before{
+  background:none !important;
+  box-shadow:none !important;
+}
+
+/* === Ana container: üst boşlukları nötrle */
 [data-testid="stAppViewContainer"] > .main .block-container {
   padding-top: 0 !important;
   margin-top: 0 !important;
 }
 
-/* === Sidebar === */
-[data-testid="stSidebar"] {
-  background: var(--bg-light)!important;
-  border-right: 1px solid #E3E4E6;
+/* === Sidebar (açık gri) === */
+[data-testid="stSidebar"]{
+  background:var(--bg-light)!important;
+  border-right:1px solid #E3E4E6;
 }
-[data-testid="stSidebar"] *{
-  color: #1F2937!important;
+[data-testid="stSidebar"] *{ color:#1F2937!important; }
+[data-testid="stSidebar"] p.small-note{ color:#555!important; font-size:12px; }
+
+/* --- Selectbox: beyaz zemin + koyu yazı + belirgin ok --- */
+[data-testid="stSidebar"] .stSelectbox label p{
+  color:#1F2937 !important;
+  font-weight:600;
 }
-[data-testid="stSidebar"] p.small-note{
-  color:#555!important;
-  font-size:12px;
+[data-testid="stSidebar"] div[data-baseweb="select"]{
+  background:#FFFFFF !important;
+  border:1px solid #D1D5DB !important;
+  border-radius:12px !important;
+}
+[data-testid="stSidebar"] div[data-baseweb="select"] *{
+  color:#111827 !important;
+}
+[data-testid="stSidebar"] div[data-baseweb="select"] svg{
+  color:#111827 !important;
+  fill:#111827 !important;
 }
 
-/* === Başlık Alanı === */
+/* === Başlık alanı (kart) === */
 .header-band{
   display:flex; align-items:center; gap:.75rem;
-  background:#fff;
-  border:1px solid #E3E4E6;
-  border-radius:14px;
-  padding:.65rem .9rem;
+  background:#fff; border:1px solid #E3E4E6;
+  border-radius:14px; padding:.65rem .9rem;
   box-shadow:0 2px 8px rgba(0,0,0,.05);
-  width:100%;
-  max-width:1000px;
-  margin:0 auto .8rem;
+  width:100%; max-width:1000px; margin:0 auto .8rem;
 }
-.header-title{
-  color:var(--ba-red);
-  font-weight:800;
-}
+.header-title{ color:var(--ba-red); font-weight:800; }
 
-/* === Mesaj Balonları === */
+/* === Mesaj balonları === */
 .msg{ display:flex; gap:.6rem; margin:.6rem 0; }
 .msg .avatar{ width:32px; height:32px; border-radius:50%; overflow:hidden; flex:0 0 32px; }
 .msg .avatar img{ width:100%; height:100%; object-fit:cover; display:block; }
 .bubble{
-  max-width:780px;
-  padding:.6rem .8rem;
-  border-radius:12px;
-  border:1px solid #eee;
-  line-height:1.45;
-  font-size:.95rem;
+  max-width:780px; padding:.6rem .8rem; border-radius:12px;
+  border:1px solid #eee; line-height:1.45; font-size:.95rem;
 }
-.msg.bot .bubble{
-  background:var(--bot-bg);
-  border-color:var(--bot-border);
-  color:var(--text);
-}
+.msg.bot .bubble{ background:var(--bot-bg); border-color:var(--bot-border); color:var(--text); }
 .msg.user{ justify-content:flex-end; }
-.msg.user .bubble{
-  background:var(--user-bg);
-  color:var(--user-text);
-  border-color:var(--user-border);
-}
+.msg.user .bubble{ background:var(--user-bg); color:var(--user-text); border-color:var(--user-border); }
 
 /* === Expander === */
 .streamlit-expanderHeader{
-  font-weight:700;
-  color:var(--text);
-  background:#F7F7F8;
-  border-radius:10px;
-  border:1px solid #EEE;
+  font-weight:700; color:var(--text); background:#F7F7F8;
+  border-radius:10px; border:1px solid #EEE;
 }
 .streamlit-expanderContent{
-  background:#FCFCFD;
-  border:1px dashed #E5E7EB;
-  border-radius:10px;
+  background:#FCFCFD; border:1px dashed #E5E7EB; border-radius:10px;
 }
 
-/* === Giriş Alanı === */
-.input-dock{
-  position:sticky;
-  bottom:8px;
-  z-index:5;
-  background:transparent;
-  padding:.2rem 0;
-}
-.input-row{
-  display:grid;
-  grid-template-columns: 1fr 56px;
-  gap:.5rem;
-}
+/* === Giriş alanı === */
+.input-dock{ position:sticky; bottom:8px; z-index:5; background:transparent; padding:.2rem 0; }
+.input-row{ display:grid; grid-template-columns: 1fr 56px; gap:.5rem; }
 
-/* Giriş kutusu */
+/* Giriş kutusu: açık tema */
 .input-row textarea{
   background:#f8f9fa !important;
   color:#111827 !important;
@@ -163,17 +156,10 @@ html, body, [data-testid="stAppViewContainer"]{
 
 /* Gönder butonu */
 .input-row .send-btn, button[kind="primary"]{
-  background:var(--ba-red)!important;
-  color:#fff!important;
-  font-weight:700!important;
-  border-radius:12px!important;
-  height:56px!important;
-  width:56px!important;
-  border:none!important;
+  background:var(--ba-red)!important; color:#fff!important; font-weight:700!important;
+  border-radius:12px!important; height:56px!important; width:56px!important; border:none!important;
 }
-.input-row .send-btn:hover, button[kind="primary"]:hover{
-  background:#b7181f!important;
-}
+.input-row .send-btn:hover, button[kind="primary"]:hover{ background:#b7181f!important; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -297,4 +283,3 @@ if send and st.session_state[q_key].strip():
         except Exception as e:
             st.session_state.history.append(("bot", f"<b>Fehler:</b> {e}"))
     st.rerun()
-
