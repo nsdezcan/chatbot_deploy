@@ -1,200 +1,155 @@
 # app/app.py
-import sys
-import base64
+import os, sys
 from pathlib import Path
 import streamlit as st
 
-# ===========================================
-# 1) YOLLAR / MODÜLLER
-# ===========================================
 BASE_DIR = Path(__file__).resolve().parent
 sys.path.append(str(BASE_DIR))
-from ba_rag import answer_pair  # <-- BA_RAG.PY aynen kalsın
 
-ASSETS = BASE_DIR.parent / "assets"
-BOT_AVATAR_PATH = ASSETS / "logo_company.png"     # kurum logosu (bot)
-USER_AVATAR_PATH = ASSETS / "user_avatar.png"     # kullanıcı avatarı
+from ba_rag import answer_pair  # load_store/retrieve_context'i içeride çağırıyoruz
 
-def _to_b64(p: Path) -> str:
-    try:
-        data = p.read_bytes()
-        return base64.b64encode(data).decode("utf-8")
-    except Exception:
-        return ""
+# ---------------------- PAGE CONFIG ----------------------
+st.set_page_config(page_title="BA Chatbot", page_icon="💬", layout="wide")
 
-BOT_AVATAR_B64 = _to_b64(BOT_AVATAR_PATH)
-USER_AVATAR_B64 = _to_b64(USER_AVATAR_PATH)
-
-# ===========================================
-# 2) SAYFA
-# ===========================================
-st.set_page_config(
-    page_title="Bundesagentur für Arbeit Chatbot",
-    page_icon="💬",
-    layout="wide",
-)
-
-# ===========================================
-# 3) STİL
-# ===========================================
+# ---------------------- STYLES ---------------------------
 st.markdown("""
 <style>
-:root{
-  --ba-red:#D0021B;
-  --text:#1F2937;
-  --muted:#6B7280;
-  --bg:#FFFFFF;
-  --bot-bg:#FFF5F6;
-  --bot-border:#FFD6DA;
-  --user-bg:#2A2E35;
+/* Genel arka plan: beyaz, sade */
+[data-testid="stAppViewContainer"] { background: #fff; }
+
+/* Başlık şeridi — gereksiz bantları kaldır, kompakt yap */
+.header-strip{
+  display:flex; align-items:center; gap:.6rem;
+  padding:.55rem .9rem;
+  border:1px solid #eee; border-radius:12px;
+  background:#fff; box-shadow:0 2px 10px rgba(0,0,0,.05);
+  width:100%; max-width:1080px; margin:1rem auto .5rem auto;
+}
+.header-title{ margin:0; font-size:1.05rem; font-weight:800; color:#c0171f; }
+
+/* Sayfa düzeni */
+.wrapper{ display:grid; grid-template-columns: 280px 1fr; gap:18px; }
+.sidebar{
+  background:#1f2127; color:#cfd3da; border-radius:12px; padding:16px;
+  height:calc(100vh - 120px); position:sticky; top:16px;
+}
+.sidebar .hint{ color:#9ea4af; font-size:.88rem; margin-top:.6rem; }
+.content{ padding:0 10px; }
+
+/* Sohbet alanı */
+.chat-area{ max-width:1080px; margin:0 auto 96px auto; }
+.bubble-row{ display:flex; align-items:flex-start; gap:.5rem; margin:10px 0; }
+.msg { border-radius:14px; padding:.75rem .9rem; border:1px solid #eee; }
+.msg.user{
+  background:#2b2d34; color:#fff; margin-left:auto; max-width:72%;
+}
+.msg.bot{
+  background:#fff6f6; color:#1d1f24; max-width:80%;
+  border-color:#f3d6d6;
 }
 
-html, body, [data-testid="stAppViewContainer"]{ background:var(--bg)!important; color:var(--text); }
-[data-testid="stSidebar"] { background:#17191E; }
-[data-testid="stSidebar"] *{ color:#E5E7EB!important; }
-[data-testid="stSidebar"] p.small-note{ color:#CDD3DD!important; font-size:12px; }
+/* Avatarlar */
+.avatar{ width:30px; height:30px; border-radius:50%; object-fit:contain; border:1px solid #eee; background:#fff; }
 
-/* Başlık bandı */
-.header-band{
-  display:flex; align-items:center; gap:.75rem;
-  background:#fff; border:1px solid #eee;
-  border-radius:14px; padding:.65rem .9rem;
-  box-shadow:0 6px 20px rgba(0,0,0,.06);
-  width:100%; max-width:1000px; margin:0 auto .6rem;
+/* Giriş çubuğu (alta sabit) */
+.input-bar{
+  position:fixed; bottom:14px; left:50%; transform:translateX(-50%);
+  width:min(1080px, 92vw); display:flex; gap:10px;
+  background:#fff; padding:10px; border-radius:14px;
+  box-shadow:0 8px 24px rgba(0,0,0,.12); border:1px solid #eee;
 }
-.header-title{ color:var(--ba-red); font-weight:800; }
+.send-btn button{
+  height:54px; border-radius:12px; padding:0 18px; font-weight:700;
+  background:#c0171f;
+}
+.send-btn button:hover{ background:#a0151b; }
 
-/* Mesaj balonları */
-.msg{ display:flex; gap:.6rem; margin:.6rem 0; }
-.msg .avatar{ width:32px; height:32px; border-radius:50%; overflow:hidden; flex:0 0 32px; }
-.msg .avatar img{ width:100%; height:100%; object-fit:cover; display:block; }
-.bubble{
-  max-width:780px; padding:.6rem .8rem; border-radius:12px; border:1px solid #eee;
-  line-height:1.45; font-size:.95rem;
-}
-.msg.bot .bubble{ background:var(--bot-bg); border-color:var(--bot-border); color:var(--text); }
-.msg.user{ justify-content:flex-end; }
-.msg.user .bubble{ background:var(--user-bg); color:#fff; border-color:#282C34; }
-
-/* Expander */
-.streamlit-expanderHeader{
-  font-weight:700; color:var(--text); background:#F7F7F8; border-radius:10px;
-  border:1px solid #EEE;
-}
-.streamlit-expanderContent{ background:#FCFCFD; border:1px dashed #E5E7EB; border-radius:10px; }
-
-/* Alt giriş barı */
-.input-dock{ position:sticky; bottom:8px; z-index:5; background:transparent; padding:.2rem 0; }
-.input-row{ display:grid; grid-template-columns: 1fr 56px; gap:.5rem; }
-.input-row .send-btn{
-  height:56px; border-radius:12px; border:1px solid #e5e7eb;
-  background:var(--ba-red); color:#fff; font-weight:700;
-}
-.input-row textarea{
-  border-radius:12px; border:1px solid #E5E7EB;
-}
+/* Expander (detay) kontrastı artır */
+.streamlit-expanderHeader{ font-weight:700; }
 </style>
 """, unsafe_allow_html=True)
 
-# ===========================================
-# 4) SIDEBAR
-# ===========================================
-with st.sidebar:
-    if BOT_AVATAR_B64:
-        st.image(BOT_AVATAR_PATH.as_posix(), width=64)
-    lang_label = st.selectbox("Sprache / Language", ["Deutsch (de)", "English (en)"], index=0)
-    st.markdown('<p class="small-note">Hinweis: Antworten werden auf der gewählten Sprache verfasst.</p>',
-                unsafe_allow_html=True)
-lang_code = "de" if lang_label.startswith("Deutsch") else "en"
+# ---------------------- HEADER ---------------------------
+logo = (BASE_DIR.parent/"assets"/"logo_company.png")
+st.markdown(
+    f"""
+    <div class="header-strip">
+      <img src="app://{logo.as_posix()}" class="avatar" />
+      <h3 class="header-title">💬 Bundesagentur für Arbeit Chatbot</h3>
+    </div>
+    """,
+    unsafe_allow_html=True
+)
 
-# ===========================================
-# 5) BAŞLIK
-# ===========================================
-st.markdown('<div class="header-band">', unsafe_allow_html=True)
-c1, c2 = st.columns([0.06, 0.94])
-with c1:
-    if BOT_AVATAR_B64:
-        st.image(BOT_AVATAR_PATH.as_posix(), use_container_width=True)
-with c2:
-    st.markdown('<span class="header-title">💬 Bundesagentur für Arbeit Chatbot</span>', unsafe_allow_html=True)
-st.markdown('</div>', unsafe_allow_html=True)
+# ---------------------- LAYOUT ---------------------------
+st.markdown('<div class="wrapper">', unsafe_allow_html=True)
 
-# ===========================================
-# 6) MESAJ RENDER
-# ===========================================
-def render_bot(html_text: str):
-    img_tag = f'<img src="data:image/png;base64,{BOT_AVATAR_B64}"/>' if BOT_AVATAR_B64 else ""
-    st.markdown(f"""
-    <div class="msg bot">
-      <div class="avatar">{img_tag}</div>
-      <div class="bubble">{html_text}</div>
-    </div>""", unsafe_allow_html=True)
-
-def render_user(text: str):
-    img_tag = f'<img src="data:image/png;base64,{USER_AVATAR_B64}"/>' if USER_AVATAR_B64 else ""
-    st.markdown(f"""
-    <div class="msg user">
-      <div class="bubble">{text}</div>
-      <div class="avatar">{img_tag}</div>
-    </div>""", unsafe_allow_html=True)
-
-# ===========================================
-# 7) DURUM / GEÇMİŞ
-# ===========================================
-if "history" not in st.session_state:
-    st.session_state.history = []  # list[tuple(role, html)]
-
-for role, html in st.session_state.history:
-    if role == "user":
-        render_user(html)
-    else:
-        render_bot(html)
-
-# ===========================================
-# 8) GİRİŞ
-# ===========================================
-placeholder_text = {
-    "de": "Frage eingeben (z. B. Was ist ein Bildungsgutschein?)",
-    "en": "Ask a question (e.g., What is a Bildungsgutschein?)"
-}[lang_code]
-q_key = f"q_{lang_code}"
-if q_key not in st.session_state:
-    st.session_state[q_key] = ""
-
-st.markdown('<div class="input-dock">', unsafe_allow_html=True)
+# -- Sidebar
 with st.container():
-    st.markdown('<div class="input-row">', unsafe_allow_html=True)
-    c1, c2 = st.columns([1, 0.12])
-    with c1:
-        st.session_state[q_key] = st.text_area(
-            placeholder_text,
-            height=90,
-            label_visibility="collapsed",
-            value=st.session_state[q_key],
-            key=f"txt_{q_key}"
-        )
-    with c2:
-        send = st.button("➤", use_container_width=True, key="send_btn", type="primary")
+    st.markdown('<div class="sidebar">', unsafe_allow_html=True)
+    if logo.exists(): st.image(str(logo), width=44)
+    lang = st.selectbox("Sprache / Language", ["Deutsch (de)","English (en)"], index=0)
+    lang_code = {"Deutsch (de)":"de","English (en)":"en"}[lang]
+    st.markdown('<div class="hint">Hinweis: Antworten werden auf der gewählten Sprache verfasst.</div>', unsafe_allow_html=True)
     st.markdown('</div>', unsafe_allow_html=True)
-st.markdown('</div>', unsafe_allow_html=True)
 
-# ===========================================
-# 9) CEVAP
-# ===========================================
-if send and st.session_state[q_key].strip():
-    question = st.session_state[q_key].strip()
-    st.session_state.history.append(("user", question))
-    # giriş kutusunu hemen temizle
-    st.session_state[q_key] = ""
-    with st.spinner("Denke nach..." if lang_code == "de" else "Thinking..."):
-        try:
-            short_ans, detailed = answer_pair(question, language=lang_code)
-            short_html = f"<b>{'Kurzfassung' if lang_code=='de' else 'Short Answer'}:</b> {short_ans}"
-            st.session_state.history.append(("bot", short_html))
-            # Detay expander'ını da hemen göster
-            with st.expander("Mehr Details anzeigen" if lang_code=="de" else "Show more details", expanded=False):
-                st.markdown(detailed, unsafe_allow_html=True)
-        except Exception as e:
-            st.session_state.history.append(("bot", f"<b>Fehler:</b> {e}"))
-    # 🔁 modern API — experimental değil
-    st.rerun()
+# -- Content
+st.markdown('<div class="content">', unsafe_allow_html=True)
+st.markdown('<div class="chat-area">', unsafe_allow_html=True)
+
+# Session state
+if "history" not in st.session_state:
+    st.session_state.history = []   # list of dicts: {role: "user"/"bot", "short": str, "detail": str}
+
+# Mesajları çiz
+user_avatar = (BASE_DIR.parent/"assets"/"user_avatar.png")
+user_img_html = f'<img src="app://{user_avatar.as_posix()}" class="avatar" />' if user_avatar.exists() else ''
+bot_img_html  = f'<img src="app://{logo.as_posix()}" class="avatar" />' if logo.exists() else ''
+
+for item in st.session_state.history:
+    if item["role"] == "user":
+        st.markdown(
+            f'<div class="bubble-row"><div class="msg user">{item["short"]}</div>{user_img_html}</div>',
+            unsafe_allow_html=True
+        )
+    else:  # bot
+        # Kısa cevap
+        st.markdown(
+            f'<div class="bubble-row">{bot_img_html}<div class="msg bot"><b>{"Kurzfassung" if lang_code=="de" else "Short Answer"}:</b> {item["short"]}</div></div>',
+            unsafe_allow_html=True
+        )
+        # Uzun cevap (expander)
+        with st.expander("Mehr Details anzeigen" if lang_code=="de" else "Show more details", expanded=False):
+            st.write(item["detail"])
+
+st.markdown('</div>', unsafe_allow_html=True)  # /chat-area
+st.markdown('</div>', unsafe_allow_html=True)  # /content
+st.markdown('</div>', unsafe_allow_html=True)  # /wrapper
+
+# ---------------------- INPUT (bottom fixed) -------------
+with st.container():
+    st.markdown('<div class="input-bar">', unsafe_allow_html=True)
+    placeholder = {
+        "de": "Frage eingeben (z. B. Was ist ein Bildungsgutschein?)",
+        "en": "Ask a question (e.g., What is a Bildungsgutschein?)"
+    }[lang_code]
+    q = st.text_area(placeholder, height=54, key="__q__", label_visibility="collapsed")
+    send = st.container()
+    with send:
+        col1, col2 = st.columns([1, .12])
+        with col2:
+            clicked = st.button("Senden" if lang_code=="de" else "Send", use_container_width=True)
+    st.markdown('</div>', unsafe_allow_html=True)
+
+# İş mantığı
+if clicked and q.strip():
+    try:
+        short_ans, detail_ans = answer_pair(q, language=lang_code)
+        # user
+        st.session_state.history.append({"role":"user", "short": q, "detail": ""})
+        # bot
+        st.session_state.history.append({"role":"bot", "short": short_ans, "detail": detail_ans})
+        # YENİ: experimental_rerun kaldırıldı. Standart rerun:
+        st.rerun()
+    except Exception as e:
+        st.error(f"Hata: {e}")
