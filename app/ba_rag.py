@@ -1,141 +1,166 @@
-from pathlib import Path
+# app/ba_rag.py
 import os
-import pickle
-import json
+import glob
+from pathlib import Path
+from typing import List, Tuple
 import re
 
-import numpy as np
-import google.generativeai as genai
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.metrics.pairwise import cosine_similarity
 
-# -------------------------------------------------
-# 1. Yol ayarları
-# -------------------------------------------------
-BASE_DIR = Path(__file__).resolve().parent
-VECTOR_PATH = BASE_DIR.parent / "vectorstore" / "gemini_store.pkl"
+from groq import Groq
 
-# -------------------------------------------------
-# 2. API anahtarı
-# -------------------------------------------------
-API_KEY = os.getenv("GEMINI_API_KEY")
-if not API_KEY:
-    raise RuntimeError(
-        "GEMINI_API_KEY ortam değişkeni bulunamadı. "
-        "Streamlit Cloud → Settings → Secrets içine GEMINI_API_KEY=\"...\" ekle."
+# -------------------------------------------------------------------
+# 1) Veri yükleme ve arama (TF-IDF)
+# -------------------------------------------------------------------
+
+DATA_DIR = Path(__file__).resolve().parent.parent / "data"
+
+def _read_txt_files() -> List[Tuple[str, str]]:
+    """
+    data/*.txt dosyalarını (ad, içerik) listesi olarak döndürür.
+    """
+    docs = []
+    for fp in sorted(glob.glob(str(DATA_DIR / "*.txt"))):
+        try:
+            text = Path(fp).read_text(encoding="utf-8")
+            name = Path(fp).name
+            # basit temizlik
+            text = text.replace("\r", "")
+            docs.append((name, text))
+        except Exception as e:
+            print(f"⚠️ Okunamadı: {fp} ({e})")
+    return docs
+
+class SimpleRetrieval:
+    """
+    TF-IDF tabanlı basit bir arama sınıfı.
+    """
+    def __init__(self, documents: List[Tuple[str, str]]):
+        self.names = [n for n, _ in documents]
+        self.docs  = [t for _, t in documents]
+        self.vectorizer = TfidfVectorizer(
+            stop_words=None, max_df=0.9, min_df=2, ngram_range=(1,2)
+        )
+        self.doc_mat = self.vectorizer.fit_transform(self.docs)
+
+    def query(self, q: str, top_k: int = 5) -> List[Tuple[str, str]]:
+        q_vec = self.vectorizer.transform([q])
+        sims = cosine_similarity(q_vec, self.doc_mat)[0]
+        idxs = sims.argsort()[::-1][:top_k]
+        return [(self.names[i], self.docs[i]) for i in idxs if sims[i] > 0.0]
+
+# -------------------------------------------------------------------
+# 2) Groq ile cevap üretimi
+# -------------------------------------------------------------------
+
+def _get_client() -> Groq:
+    api_key = os.getenv("GROQ_API_KEY")
+    if not api_key:
+        raise RuntimeError("GROQ_API_KEY environment variable not set.")
+    return Groq(api_key=api_key)
+
+def _build_system_prompt(language: str) -> str:
+    """
+    language: 'tr' | 'de' | 'en'
+    """
+    base = {
+        "tr": (
+            "Sen BA (Bundesagentur für Arbeit) konularında yardımcı bir asistansın. "
+            "Kısa ve net cevap ver; emin değilsen 'emin değilim' de. "
+            "Önce 1-2 cümlelik ÖZET, istenirse ayrıntı ver."
+        ),
+        "de": (
+            "Du bist ein hilfreicher Assistent zu Themen der Bundesagentur für Arbeit. "
+            "Antworte kurz und präzise; wenn unsicher, sage 'Ich bin mir nicht sicher'. "
+            "Zuerst 1–2 Sätze ZUSAMMENFASSUNG, Details auf Wunsch."
+        ),
+        "en": (
+            "You are a helpful assistant for topics of the German Federal Employment Agency (BA). "
+            "Answer concisely; if unsure, say 'I'm not sure'. "
+            "Provide a 1–2 sentence SUMMARY first, details on request."
+        ),
+    }
+    return base.get(language, base["de"])
+
+def _lang_label(language: str) -> str:
+    return {"tr": "Türkçe", "de": "Deutsch", "en": "English"}.get(language, "Deutsch")
+
+def ask_groq_short(question: str, contexts: List[str], language: str) -> str:
+    """
+    Groq'tan KISA cevap (2-3 cümle) ister.
+    """
+    client = _get_client()
+    system = _build_system_prompt(language)
+    ctx_joined = "\n\n---\n\n".join(contexts[:3]) if contexts else ""
+    user_msg = (
+        f"Soru ({_lang_label(language)}): {question}\n\n"
+        f"İlgili bağlamlar (en fazla 3):\n{ctx_joined}\n\n"
+        f"Lütfen 2-3 cümlelik kısa yanıt ver."
     )
+    resp = client.chat.completions.create(
+        model="llama3-70b-8192",
+        messages=[
+            {"role": "system", "content": system},
+            {"role": "user", "content": user_msg},
+        ],
+        temperature=0.2,
+        max_tokens=400,
+    )
+    return resp.choices[0].message.content.strip()
 
-genai.configure(api_key=API_KEY)
+def ask_groq_detailed(question: str, contexts: List[str], language: str) -> str:
+    """
+    Groq'tan DETAYLI cevap ister.
+    """
+    client = _get_client()
+    system = _build_system_prompt(language)
+    ctx_joined = "\n\n---\n\n".join(contexts[:8]) if contexts else ""
+    user_msg = (
+        f"Soru ({_lang_label(language)}): {question}\n\n"
+        f"Bağlam parçaları (en fazla 8):\n{ctx_joined}\n\n"
+        f"Lütfen kaynaklardaki noktalara dayalı detaylı, adım adım anlatım yap. "
+        f"Belirsizse açıkça belirt."
+    )
+    resp = client.chat.completions.create(
+        model="llama3-70b-8192",
+        messages=[
+            {"role": "system", "content": system},
+            {"role": "user", "content": user_msg},
+        ],
+        temperature=0.2,
+        max_tokens=1200,
+    )
+    return resp.choices[0].message.content.strip()
 
-EMBED_MODEL = "models/text-embedding-004"
-CHAT_MODEL = "gemini-1.5-flash"   # istersen 1.5-pro yapabilirsin
+# -------------------------------------------------------------------
+# 3) Dışa sunulan yardımcılar
+# -------------------------------------------------------------------
 
-# -------------------------------------------------
-# 3. Vektör deposunu yükle
-# -------------------------------------------------
+_retrieval_cache = None
+
 def load_store():
-    if not VECTOR_PATH.exists():
-        raise FileNotFoundError(f"Vektör deposu bulunamadı: {VECTOR_PATH}")
-    with VECTOR_PATH.open("rb") as f:
-        store = pickle.load(f)
-    # store -> Colab’da yaptığımız gibi: [{ "embedding": [...], "text": "...", "source": "ba_page_00.txt" }, ...]
-    return store
+    global _retrieval_cache
+    if _retrieval_cache is not None:
+        return _retrieval_cache
 
-# -------------------------------------------------
-# 4. Embed helpers
-# -------------------------------------------------
-def embed_text(text: str):
-    """Gemini'den 768 boyutlu embedding al."""
-    resp = genai.embed_content(
-        model=EMBED_MODEL,
-        content=text,
-    )
-    return resp["embedding"]
+    docs = _read_txt_files()
+    if not docs:
+        raise RuntimeError(f"data/*.txt bulunamadı. DATA_DIR={DATA_DIR}")
+    _retrieval_cache = SimpleRetrieval(docs)
+    return _retrieval_cache
 
-def cosine(a, b):
-    a = np.array(a, dtype=float)
-    b = np.array(b, dtype=float)
-    return float(np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b) + 1e-10))
+def retrieve_context(store: SimpleRetrieval, query: str, top_k: int = 5) -> List[str]:
+    items = store.query(query, top_k=top_k)
+    return [t for _, t in items]
 
-# -------------------------------------------------
-# 5. En iyi k dokümanı getir
-# -------------------------------------------------
-def retrieve_context(store, query: str, k: int = 4):
-    q_emb = embed_text(query)
-    scored = []
-    for i, item in enumerate(store):
-        d_emb = item["embedding"]
-        score = cosine(q_emb, d_emb)
-        scored.append((score, i))
-
-    scored.sort(reverse=True, key=lambda x: x[0])
-    top = []
-    for score, idx in scored[:k]:
-        doc = store[idx]
-        top.append(
-            {
-                "text": doc["text"],
-                "source": doc.get("source", f"chunk_{idx}"),
-                "score": score,
-            }
-        )
-    return top
-
-# -------------------------------------------------
-# 6. Prompt oluştur
-# -------------------------------------------------
-def build_prompt(question: str, docs, lang: str = "de") -> str:
-    context_blocks = []
-    for i, d in enumerate(docs, start=1):
-        context_blocks.append(f"[{i}] Quelle: {d['source']}\n{d['text']}")
-    context_text = "\n\n".join(context_blocks)
-
-    if lang == "en":
-        system = (
-            "You are a helpful assistant of the German Federal Employment Agency (Bundesagentur für Arbeit).\n"
-            "Answer ONLY from the given context. If the answer is not there, say so.\n"
-            "Return the answer in JSON with two fields:\n"
-            "{\n"
-            '  "short": "2-3 sentence quick answer",\n'
-            '  "long": "well-structured, detailed answer with bullet points and, if possible, references to the context blocks"\n'
-            "}\n"
-        )
-    else:  # default: German
-        system = (
-            "Du bist ein Assistent der Bundesagentur für Arbeit.\n"
-            "Antworte NUR auf Basis des gegebenen Kontextes. Wenn etwas im Kontext nicht steht, schreibe das ehrlich.\n"
-            "Gib die Antwort im JSON-Format zurück:\n"
-            "{\n"
-            '  "short": "2-3 Sätze, sehr kurz",\n'
-            '  "long": "ausführliche, gut gegliederte Antwort mit evtl. Aufzählungen und Verweisen auf die Quellen"\n'
-            "}\n"
-        )
-
-    prompt = (
-        f"{system}\n\n"
-        f"Kontext-Dokumente:\n{context_text}\n\n"
-        f"Frage / Question: {question}\n"
-        "WICHTIG: Antworte wirklich im JSON-Format, ohne zusätzlichen Text."
-    )
-    return prompt
-
-# -------------------------------------------------
-# 7. Gemini'den yanıt al
-# -------------------------------------------------
-def ask_gemini(prompt: str):
-    model = genai.GenerativeModel(CHAT_MODEL)
-    resp = model.generate_content(prompt)
-    txt = resp.text.strip()
-
-    # Gemini bazen başına/sonuna cümle ekliyor, bunu yakalayıp JSON'u çıkarmaya çalışalım
-    try:
-        start = txt.index("{")
-        end = txt.rindex("}") + 1
-        json_part = txt[start:end]
-        data = json.loads(json_part)
-    except Exception:
-        # JSON değilse kısa/uzun aynı olsun
-        data = {
-            "short": txt,
-            "long": txt,
-        }
-    return data
+def answer_pair(question: str, language: str = "de") -> Tuple[str, str]:
+    """
+    Tek çağrıda (kısa, detaylı) cevap çifti üretir.
+    """
+    store = load_store()
+    ctxs = retrieve_context(store, question, top_k=8)
+    short = ask_groq_short(question, ctxs, language)
+    detailed = ask_groq_detailed(question, ctxs, language)
+    return short, detailed
 
