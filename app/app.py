@@ -61,14 +61,15 @@ html, body, [data-testid="stAppViewContainer"]{
   color:var(--text)!important;
 }
 
-/* === Üst üstteki siyah barı grile yaklaştır / boşluğu daralt === */
+/* === Üstteki bölme: siyah yerine açık gri === */
 header[data-testid="stHeader"]{
   background:var(--bg-light)!important;
   border-bottom:1px solid #E3E4E6!important;
 }
 header[data-testid="stHeader"] *{ color:#111827!important; }
+/* “bant” etkisini küçült */
 [data-testid="stAppViewContainer"] > .main .block-container {
-  padding-top: 0.4rem !important;  /* “bant” etkisini küçült */
+  padding-top: 0.4rem !important;
   margin-top: 0 !important;
 }
 
@@ -77,106 +78,77 @@ header[data-testid="stHeader"] *{ color:#111827!important; }
   background: var(--bg-light)!important;
   border-right: 1px solid #E3E4E6;
 }
-[data-testid="stSidebar"] *{
-  color: #1F2937!important;
-}
+[data-testid="stSidebar"] *{ color:#1F2937!important; }
 [data-testid="stSidebar"] p.small-note{
-  color:#555!important;
-  font-size:12px;
-  margin-top:.5rem;
+  color:#555!important; font-size:12px; margin-top:.5rem;
 }
 
-/* Selectbox içi yazıyı görünür yap */
+/* === Selectbox: açık zemin + siyah yazı === */
+[data-baseweb="select"] > div{
+  background:#FFFFFF !important;
+  border:1px solid #dcdfe3 !important;
+  border-radius:12px !important;
+}
 [data-baseweb="select"] div, 
 [data-baseweb="select"] span, 
 [data-baseweb="select"] input{
   color:#111827 !important;
 }
-[data-baseweb="select"] svg{
-  color:#111827 !important;
+[data-baseweb="select"] svg{ color:#111827 !important; }
+[data-baseweb="select"]:hover > div{
+  border-color:#9ac3ff !important;
+  box-shadow:0 0 0 2px rgba(154,195,255,.25) !important;
 }
 
 /* === Başlık Alanı === */
 .header-band{
   display:flex; align-items:center; gap:.75rem;
-  background:#fff;
-  border:1px solid #E3E4E6;
-  border-radius:14px;
-  padding:.65rem .9rem;
+  background:#fff; border:1px solid #E3E4E6;
+  border-radius:14px; padding:.65rem .9rem;
   box-shadow:0 2px 8px rgba(0,0,0,.05);
-  width:100%;
-  max-width:1000px;
-  margin:0 auto .8rem;
+  width:100%; max-width:1000px; margin:0 auto .8rem;
 }
-.header-title{
-  color:var(--ba-red);
-  font-weight:800;
-}
+.header-title{ color:var(--ba-red); font-weight:800; }
 
 /* === Mesaj Balonları === */
 .msg{ display:flex; gap:.6rem; margin:.6rem 0; }
 .msg .avatar{ width:32px; height:32px; border-radius:50%; overflow:hidden; flex:0 0 32px; }
 .msg .avatar img{ width:100%; height:100%; object-fit:cover; display:block; }
 .bubble{
-  max-width:780px;
-  padding:.6rem .8rem;
-  border-radius:12px;
-  border:1px solid #eee;
-  line-height:1.45;
-  font-size:.95rem;
+  max-width:780px; padding:.6rem .8rem; border-radius:12px; border:1px solid #eee;
+  line-height:1.45; font-size:.95rem;
 }
-.msg.bot .bubble{
-  background:var(--bot-bg);
-  border-color:var(--bot-border);
-  color:var(--text);
-}
+.msg.bot .bubble{ background:var(--bot-bg); border-color:var(--bot-border); color:var(--text); }
 .msg.user{ justify-content:flex-end; }
-.msg.user .bubble{
-  background:var(--user-bg);
-  color:var(--user-text);
-  border-color:var(--user-border);
-}
+.msg.user .bubble{ background:var(--user-bg); color:var(--user-text); border-color:var(--user-border); }
 
 /* === Expander === */
 .streamlit-expanderHeader{
-  font-weight:700;
-  color:var(--text);
-  background:#F7F7F8;
-  border-radius:10px;
+  font-weight:700; color:var(--text); background:#F7F7F8; border-radius:10px;
   border:1px solid #EEE;
 }
-.streamlit-expanderContent{
-  background:#FCFCFD;
-  border:1px dashed #E5E7EB;
-  border-radius:10px;
-}
+.streamlit-expanderContent{ background:#FCFCFD; border:1px dashed #E5E7EB; border-radius:10px; }
 
 /* === Alt Giriş Alanı === */
-.input-dock{
-  position:sticky;
-  bottom:8px;
-  z-index:5;
-  background:transparent;
-  padding:.2rem 0;
-}
-.input-row{
-  display:grid;
-  grid-template-columns: 1fr 56px;
-  gap:.5rem;
-}
+.input-dock{ position:sticky; bottom:8px; z-index:5; background:transparent; padding:.2rem 0; }
+.input-row{ display:grid; grid-template-columns: 1fr 56px; gap:.5rem; }
 
-/* === Giriş kutusu: kullanıcı balonuyla aynı renk, siyah yazı === */
-.input-row textarea{
-  background:var(--user-bg) !important;     /* açık mavi-gri */
-  color:var(--user-text) !important;        /* siyah yazı */
+/* === Textarea: kullanıcı balonuyla aynı renk + siyah yazı (dark temayı bastır) === */
+.input-row textarea,
+.stTextArea textarea,
+textarea[aria-label]{
+  background:var(--user-bg) !important;
+  color:var(--user-text) !important;
   border:1px solid var(--user-border) !important;
   border-radius:12px !important;
   padding:.6rem .8rem !important;
   font-size:.95rem !important;
   line-height:1.5 !important;
-  transition:all .2s ease-in-out;
 }
-.input-row textarea:focus{
+.stTextArea div:has(textarea){
+  background:transparent !important;   /* baseweb kaplamasını da nötrle */
+}
+.input-row textarea:focus, .stTextArea textarea:focus, textarea[aria-label]:focus{
   border-color:#9ac3ff !important;
   box-shadow:0 0 0 2px rgba(154,195,255,.35) !important;
   outline:none !important;
@@ -184,17 +156,10 @@ header[data-testid="stHeader"] *{ color:#111827!important; }
 
 /* === Gönder butonu === */
 .input-row .send-btn, button[kind="primary"]{
-  background:var(--ba-red)!important;
-  color:#fff!important;
-  font-weight:700!important;
-  border-radius:12px!important;
-  height:56px!important;
-  width:56px!important;
-  border:none!important;
+  background:var(--ba-red)!important; color:#fff!important; font-weight:700!important;
+  border-radius:12px!important; height:56px!important; width:56px!important; border:none!important;
 }
-.input-row .send-btn:hover, button[kind="primary"]:hover{
-  background:#b7181f!important;
-}
+.input-row .send-btn:hover, button[kind="primary"]:hover{ background:#b7181f!important; }
 </style>
 """,
     unsafe_allow_html=True,
@@ -308,9 +273,16 @@ st.markdown("</div>", unsafe_allow_html=True)
 # 9) CEVAP
 # ===========================================
 if send and st.session_state[q_key].strip():
-    question = st.session_state[q_key].strip()
-    st.session_state.history.append(("user", question))
+    # Dil dayatmayı güçlendirmek için soruya kısa bir yönerge ekliyoruz
+    original_q = st.session_state[q_key].strip()
+    if lang_code == "en":
+        question = "Please answer in English only. Do not use Turkish or German. " + original_q
+    else:  # de
+        question = "Bitte NUR auf Deutsch antworten. Keine englischen oder türkischen Texte. " + original_q
+
+    st.session_state.history.append(("user", original_q))
     st.session_state[q_key] = ""
+
     with st.spinner("Denke nach..." if lang_code == "de" else "Thinking..."):
         try:
             short_ans, detailed = answer_pair(question, language=lang_code)
@@ -329,5 +301,5 @@ if send and st.session_state[q_key].strip():
                     st.markdown(detailed, unsafe_allow_html=True)
         except Exception as e:
             st.session_state.history.append(("bot", f"<b>Fehler:</b> {e}"))
-    st.rerun()
 
+    st.rerun()
